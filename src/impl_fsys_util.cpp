@@ -24,7 +24,7 @@ void fsys::impl::to_case_sensitive_path(std::string &inOutCaseInsensitivePath)
 #ifdef __linux__
 	if(inOutCaseInsensitivePath.empty())
 		return;
-	char *r = static_cast<char *>(alloca(inOutCaseInsensitivePath.length() + 2));
+	char *r = static_cast<char *>(alloca(inOutCaseInsensitivePath.length() + 3));
 	if(casepath(inOutCaseInsensitivePath.c_str(), r))
 		inOutCaseInsensitivePath = r;
 #endif
