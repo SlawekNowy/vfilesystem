@@ -3,9 +3,22 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 #include "fsys/directory_watcher.h"
+#include <linux/fanotify.h>
 #include <sharedutils/util.h>
 #include <sharedutils/util_path.hpp>
 #include <assert.h>
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
+
+#if __linux__
+#include <sys/fanotify.h>
+#include <fcntl.h>
+#include <unistd.h> // open, close, read on file descriptor.
+#include <cerrno>
+#include <cstring> //for strerror
+#include <string>
+#include <atomic>
+#endif
 
 DirectoryWatcher::FileEvent::FileEvent(const std::string &fName) : fileName(fName), time(std::chrono::high_resolution_clock::now()) {}
 
@@ -88,7 +101,88 @@ DirectoryWatcher::DirectoryWatcher(const std::string &path, WatchFlags flags) : 
 	util::set_thread_name(m_thread, "dir_watch_" + relPath.GetString());
 #else
 	//TODO: play araund the inotify api
-	throw ConstructException("Only supported on Windows systems");
+	//throw ConstructException("Only supported on Windows systems");
+	auto notifyFilter = FAN_CREATE | FAN_DELETE | FAN_MOVE | FAN_MODIFY ;
+	if(umath::is_flag_set(flags, WatchFlags::WatchDirectoryChanges))
+		notifyFilter |= FAN_ONDIR;
+
+	fanotifyFD = fanotify_init(FAN_CLOEXEC | FAN_NONBLOCK,O_RDWR);
+	int errnoinotify = errno;
+	if(fanotifyFD == -1) {
+		std::string errstr = strerror(errnoinotify);
+		throw ConstructException("Unable to create directory handle. Reason: "+errstr);
+		return;
+	}
+	//int rootWatch = fanotify_mark(inotifyFD, dstPath.c_str(), notifyFilter | FAN_DELETE_SELF | FAN_MOVE_SELF);
+	int rootWatch = fanotify_mark(fanotifyFD, FAN_MARK_ADD, notifyFilter, -1, dstPath.c_str());
+	errnoinotify = errno;
+
+	if(rootWatch == -1) {
+		std::string errstr = strerror(errnoinotify);
+		throw ConstructException("Unable to create root watch handle. Reason: "+errstr);
+		return;
+	}
+
+	exitEventFD = eventfd(0,EFD_CLOEXEC|EFD_SEMAPHORE);
+
+	errnoinotify = errno;
+	if(exitEventFD == -1) {
+		std::string errstr = strerror(errnoinotify);
+		throw ConstructException("Unable to create exit event file descriptor. Reason: "+errstr);
+		return;
+	}
+	int maxEvents =-1;
+	{
+		char maxEventsStr[64];
+		int procFD = open("/proc/sys/fs/fanotify/max_queued_events",O_RDONLY);
+		int size = ioctl(procFD,FIONREAD);
+		read(procFD,&maxEventsStr,size);
+		maxEvents = atoi(maxEventsStr);
+		close(procFD);
+	}
+	/*
+	Consider implementing this algorithm.
+
+	I humbly present the Love-Trowbridge (Lovebridge?) recursive directory
+scanning algorithm:
+
+        Step 1.  Start at initial directory foo.  Add watch.
+        
+        Step 2.  Setup handlers for watch created in Step 1.
+                 Specifically, ensure that a directory created
+                 in foo will result in a handled CREATE_SUBDIR
+                 event.
+        
+        Step 3.  Read the contents of foo.
+        
+        Step 4.  For each subdirectory of foo read in step 3, repeat
+                 step 1.
+        
+        Step 5.  For any CREATE_SUBDIR event on bar, if a watch is
+                 not yet created on bar, repeat step 1 on bar.
+	
+	*/
+	auto bSubTree = (flags & WatchFlags::WatchSubDirectories) != WatchFlags::None;
+	m_thread = std::thread([this, rootWatch, notifyFilter, bSubTree, dstPath,maxEvents]() {
+		//fanotify_event_metadata strFileNotifyInfo[maxEvents];
+		//std::array<HANDLE, 2> waitHandles = {pollingOverlap->hEvent, m_exitEvent};
+
+		auto bExit = false;
+		int epollFD = epoll_create1(EPOLL_CLOEXEC);
+
+		int errnoinotify = errno;
+		if(epollFD == -1) {
+			std::string errstr = strerror(errnoinotify);
+			throw ConstructException("Unable to create exit event file descriptor. Reason: "+errstr);
+			return;
+		}
+		epoll_event events[2] {{EPOLLIN,NULL},{EPOLLIN,NULL}};
+		epoll_ctl(epollFD,EPOLL_CTL_ADD,fanotifyFD,&events[0]);
+		epoll_ctl(epollFD,EPOLL_CTL_ADD,exitEventFD,&events[1]); //is this even needed?
+	});
+	auto relPath = util::Path::CreatePath(dstPath);
+	relPath.MakeRelative(util::get_program_path());
+	util::set_thread_name(m_thread, "dir_watch_" + relPath.GetString());
 #endif
 }
 
@@ -96,6 +190,9 @@ DirectoryWatcher::~DirectoryWatcher()
 {
 #ifdef _WIN32
 	SetEvent(m_exitEvent);
+#else
+	eventfd_write(exitEventFD, 1);
+	close(fanotifyFD);
 #endif
 	m_thread.join();
 }

@@ -50,6 +50,9 @@ class DLLFSYSTEM DirectoryWatcher {
 	std::mutex m_fileMutex;
 #ifdef _WIN32
 	HANDLE m_exitEvent;
+#else
+	int fanotifyFD;
+	int exitEventFD;
 #endif
 };
 REGISTER_BASIC_BITWISE_OPERATORS(DirectoryWatcher::WatchFlags);
