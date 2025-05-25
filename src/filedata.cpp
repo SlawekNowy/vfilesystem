@@ -46,8 +46,6 @@ void VDirectory::Remove(VData *file)
 
 ///////////////////////////
 
-#define IsEOF(c) (c == EOF || Eof())
-
 VFilePtrInternal::VFilePtrInternal() : m_bRead(false), m_bBinary(false) {}
 VFilePtrInternal::~VFilePtrInternal() {}
 bool VFilePtrInternal::ShouldRemoveComments() { return (m_bRead == true && m_bBinary == false) ? true : false; }
@@ -132,8 +130,8 @@ std::string VFilePtrInternal::ReadString()
 	std::string name = "";
 	c = Read<char>();
 	bool bRemoveComments = ShouldRemoveComments();
-	while(c != '\0' && !IsEOF(c) && !Eof()) {
-		if(RemoveComments(c, bRemoveComments) && IsEOF(c) && !Eof())
+	while(c != '\0' && !Eof()) {
+		if(RemoveComments(c, bRemoveComments) && !Eof())
 			break;
 		name += c;
 		c = Read<char>();
@@ -150,8 +148,8 @@ std::string VFilePtrInternal::ReadLine()
 		return name;
 	}
 	bool bRemoveComments = ShouldRemoveComments();
-	while(c != '\0' && !IsEOF(c)) {
-		if(RemoveComments(c, bRemoveComments) && IsEOF(c))
+	while(c != '\0' && !Eof()) {
+		if(RemoveComments(c, bRemoveComments) && Eof())
 			break;
 		name += c;
 		c = Read<char>();
@@ -167,7 +165,7 @@ char *VFilePtrInternal::ReadString(char *str, int num)
 	int i = 0;
 	for(i = 0; i < num; i++) {
 		char c = Read<char>();
-		if(IsEOF(c))
+		if(Eof())
 			return NULL;
 		str[i] = c;
 		if(str[i] == '\n') {
@@ -189,14 +187,14 @@ unsigned long long VFilePtrInternal::FindFirstOf(const char *s)
 	bool bRemoveComments = ShouldRemoveComments();
 	do {
 		c = static_cast<unsigned char>(ReadChar());
-		if(!IsEOF(c) && (!RemoveComments(c, bRemoveComments) || !IsEOF(c))) {
+		if(!Eof() && (!RemoveComments(c, bRemoveComments) || !Eof())) {
 			while(s[cur] != '\0') {
 				if(c == s[cur])
 					return c;
 				cur++;
 			}
 		}
-	} while(!IsEOF(c));
+	} while(!Eof());
 	return static_cast<unsigned long long>(EOF);
 }
 unsigned long long VFilePtrInternal::FindFirstNotOf(const char *s)
@@ -208,7 +206,7 @@ unsigned long long VFilePtrInternal::FindFirstNotOf(const char *s)
 	bool bRemoveComments = ShouldRemoveComments();
 	do {
 		c = static_cast<unsigned char>(ReadChar());
-		if(!IsEOF(c) && (!RemoveComments(c, bRemoveComments) || !IsEOF(c))) {
+		if(!Eof() && (!RemoveComments(c, bRemoveComments) || !Eof())) {
 			bool ret = true;
 			while(s[cur] != '\0') {
 				if(c == s[cur]) {
@@ -221,7 +219,7 @@ unsigned long long VFilePtrInternal::FindFirstNotOf(const char *s)
 				return c;
 			cur = 0;
 		}
-	} while(!IsEOF(c));
+	} while(!Eof());
 	return static_cast<unsigned long long>(EOF);
 }
 std::string VFilePtrInternal::ReadUntil(const char *s)
@@ -234,7 +232,7 @@ std::string VFilePtrInternal::ReadUntil(const char *s)
 	bool bRemoveComments = ShouldRemoveComments();
 	do {
 		c = static_cast<unsigned char>(ReadChar());
-		if(!IsEOF(c) && (!RemoveComments(c, bRemoveComments) || !IsEOF(c))) {
+		if(!Eof() && (!RemoveComments(c, bRemoveComments) || !Eof())) {
 			while(s[cur] != '\0') {
 				if(c == s[cur]) {
 					Seek(Tell() - 1);
@@ -245,7 +243,7 @@ std::string VFilePtrInternal::ReadUntil(const char *s)
 			cur = 0;
 			ret += char(c);
 		}
-	} while(!IsEOF(c));
+	} while(!Eof());
 	return ret;
 }
 
@@ -294,7 +292,7 @@ unsigned long long VFilePtrInternal::Find(const char *s, bool bIgnoreCase)
 	bool bRemoveComments = ShouldRemoveComments();
 	do {
 		c = static_cast<char>(ReadChar());
-		if(!IsEOF(c) && (!RemoveComments(c, bRemoveComments) || !IsEOF(c))) {
+		if(!Eof() && (!RemoveComments(c, bRemoveComments) || !Eof())) {
 			while((!bIgnoreCase && c == cpy[cur]) || (bIgnoreCase && tolower(c) == cpy[cur])) {
 				cur++;
 				if(s[cur] == '\0') {
@@ -307,7 +305,7 @@ unsigned long long VFilePtrInternal::Find(const char *s, bool bIgnoreCase)
 			}
 			cur = 0;
 		}
-	} while(!IsEOF(c));
+	} while(!Eof());
 	if(bIgnoreCase)
 		delete[] cpy;
 	return static_cast<unsigned long long>(EOF);
@@ -350,15 +348,18 @@ VFilePtrInternalReal::~VFilePtrInternalReal()
 }
 const std::string &VFilePtrInternalReal::GetPath() const { return m_path; }
 
-bool VFilePtrInternalReal::Construct(const char *path, const char *mode, int *optOutErrno)
+bool VFilePtrInternalReal::Construct(const char *path, const char *mode, int *optOutErrno, std::string *optOutErr)
 {
 	std::string sPath = path;
 	std::replace(sPath.begin(), sPath.end(), '\\', '/');
+
 #ifdef _WIN32
 	auto wpath = string_to_wstring(path);
 	if(!wpath) {
 		if(optOutErrno)
 			*optOutErrno = 0;
+		if(optOutErr)
+			*optOutErr = "failed to convert UTF‑8 path to UTF‑16";
 		return false;
 	}
 	auto wmode = ustring::string_to_wstring(mode);
@@ -369,11 +370,25 @@ bool VFilePtrInternalReal::Construct(const char *path, const char *mode, int *op
 #endif
 
 	if(m_file == NULL) {
+#ifdef _WIN32
+		DWORD lastErr = GetLastError();
+		if(optOutErrno)
+			*optOutErrno = static_cast<int>(lastErr);
+		if(optOutErr) {
+			char buf[512] = {0};
+			FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, lastErr, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), buf, (DWORD)sizeof(buf), nullptr);
+			*optOutErr = buf;
+		}
+#else
 		if(optOutErrno)
 			*optOutErrno = errno;
+		if(optOutErr)
+			*optOutErr = std::strerror(errno);
+#endif
 		return false;
 	}
-	m_path = sPath.c_str();
+
+	m_path = sPath;
 	long long cur = ftell(m_file);
 	fseek(m_file, 0, SEEK_END);
 	m_size = ftell(m_file);

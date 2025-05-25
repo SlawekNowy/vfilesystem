@@ -136,13 +136,13 @@ class DLLFSYSTEM VFilePtrInternalVirtual : public VFilePtrInternal {
   public:
 	VFilePtrInternalVirtual(VFile *file);
 	virtual ~VFilePtrInternalVirtual() override;
-    virtual size_t Read(void *ptr, size_t size) override;
-    virtual unsigned long long Tell() override;
+	size_t Read(void *ptr, size_t size) override;
+	unsigned long long Tell() override;
 	virtual void Seek(unsigned long long offset) override;
 	using VFilePtrInternal::Seek;
-    virtual int Eof() override;
-    virtual int ReadChar() override;
-    virtual unsigned long long GetSize() override;
+	int Eof() override;
+	int ReadChar() override;
+	unsigned long long GetSize() override;
 	std::shared_ptr<std::vector<uint8_t>> GetData() const;
 };
 
@@ -154,16 +154,16 @@ class DLLFSYSTEM VFilePtrInternalReal : public VFilePtrInternal {
   public:
 	VFilePtrInternalReal();
 	virtual ~VFilePtrInternalReal() override;
-	bool Construct(const char *path, const char *mode, int *optOutErrno = nullptr);
+	bool Construct(const char *path, const char *mode, int *optOutErrno = nullptr, std::string *optOutErr = nullptr);
 	const std::string &GetPath() const;
-    virtual size_t Read(void *ptr, size_t size) override;
+	size_t Read(void *ptr, size_t size) override;
 	size_t Write(const void *ptr, size_t size);
-    virtual unsigned long long Tell() override;
+	unsigned long long Tell() override;
 	virtual void Seek(unsigned long long offset) override;
 	using VFilePtrInternal::Seek;
-    virtual int Eof() override;
-    virtual int ReadChar() override;
-    virtual unsigned long long GetSize() override;
+	int Eof() override;
+	int ReadChar() override;
+	unsigned long long GetSize() override;
 	template<class T>
 	void Write(T t);
 	int WriteString(const std::string_view &sv, bool withBinaryZeroByte = true);
