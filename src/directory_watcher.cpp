@@ -11,7 +11,7 @@
 #include <sys/eventfd.h>
 
 #if __linux__
-#include <sys/fanotify.h>
+#include <notify-cpp/notify.h>
 #include <fcntl.h>
 #include <unistd.h> // open, close, read on file descriptor.
 #include <cerrno>

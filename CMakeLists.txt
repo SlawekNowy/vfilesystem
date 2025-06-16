@@ -37,6 +37,8 @@ endif()
 
 if(WIN32)
     target_link_libraries(${PROJ_NAME} PRIVATE shlwapi.lib)
+else()
+    target_link_libraries(${PROJ_NAME} PRIVATE notify-cpp-static)
 endif()
 
 pr_finalize(${PROJ_NAME})
